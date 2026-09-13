@@ -133,8 +133,8 @@ class LAYER_OT_recompute_preview(bpy.types.Operator):
 
 class LAYER_OT_apply_material(bpy.types.Operator):
     bl_idname = "pixelorama_layer.apply_material"
-    bl_label = "Apply Layer Material"
-    bl_description = "Create a dedicated preview material on the active mesh"
+    bl_label = "Apply Unlit Layer Material"
+    bl_description = "Create an unlit pixel-art preview material on the active mesh"
     bl_options = {"REGISTER", "UNDO"}
 
     @classmethod

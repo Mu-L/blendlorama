@@ -42,10 +42,11 @@ image so existing material links continue to work. Hidden layers are retained.
   You can also use `Paint` in `3D View > N > PixeloramaSync > Layers` to switch it
   manually. Edits, including transparent pixels, return to the matching Pixelorama
   layer/frame. Do not paint the composite preview directly.
-- Set layer roles to `Emission` and click `Apply Layer Material` to assign a new
+- Set layer roles to `Emission` and click `Apply Unlit Layer Material` to assign a new
   generated material to the active slot (the previous material datablock is retained).
-  The composite drives base color; emission layers additionally drive emission using
-  alpha, opacity and visibility. Generated nodes are rebuilt when structure changes.
+  The generated material is always unlit and preserves the composite alpha. Emission
+  layers additionally boost their colour using alpha, opacity and visibility, allowing
+  HDR bloom to distinguish them from ordinary colour layers. Generated nodes are rebuilt when structure changes.
   For custom node edits, duplicate the material and remove its `blendlorama_image`
   custom property first.
 - `Export Layer PNGs + Manifest` writes original RGBA layer PNGs and `layers.json`

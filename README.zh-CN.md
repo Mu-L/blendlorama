@@ -40,10 +40,11 @@ Blender Image，并合成回原始贴图，已有材质连接可继续显示结�
    `3D 视图 > N > PixeloramaSync > Layers` 点击 `Paint` 手动切换。
    修改会回传到 Pixelorama 对应图层和帧，透明像素也能覆盖原像素。
    请勿直接绘制合成预览。
-3. 按需将图层用途设为 `Emission`，点击 `Apply Layer Material`。
+3. 按需将图层用途设为 `Emission`，点击 `Apply Unlit Layer Material`。
    此按钮给当前物体的活动材质槽分配新材质，保留原材质数据；生成材质使用
-   合成图作为底色，并把 Emission 图层按 alpha、透明度和可见性叠加到发光输入。
-   这些图层仍参与底色合成。生成材质由插件管理，结构变化会重建节点；
+   固定 Unlit 着色并保留合成图透明通道，不受场景灯光影响。Emission 图层会按
+   alpha、透明度和可见性额外提高颜色亮度，开启 HDR Bloom 后可与普通颜色区分。
+   这些图层仍参与基础合成。生成材质由插件管理，结构变化会重建节点；
    需要自行编辑节点时请先复制材质并移除 `blendlorama_image` 自定义属性。
 4. 点击 `Export Layer PNGs + Manifest` 选择目录，得到每层原始 RGBA PNG 和
    `layers.json`（名称、顺序、用途、可见性、透明度、混合模式、帧号）。

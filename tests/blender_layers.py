@@ -69,7 +69,12 @@ lm.apply_active_layer(scene, dict(image_id=CANVAS_ID, id='b', frame=2))
 assert scene.tool_settings.image_paint.canvas.name == 'PX | Glow | Canvas'
 scene.pixelorama_layers[1].role = 'emission'
 bpy.ops.pixelorama_layer.apply_material()
-assert bpy.context.object.active_material.node_tree.nodes.get('Principled BSDF').inputs['Emission Color'].is_linked
+generated_nodes = bpy.context.object.active_material.node_tree.nodes
+assert bpy.context.object.active_material['blendlorama_material_version'] == 2
+assert generated_nodes.get('Principled BSDF') is None
+assert generated_nodes.get('Emission').inputs['Color'].is_linked
+assert generated_nodes.get('Transparent BSDF') is not None
+assert generated_nodes.get('Mix Shader').inputs[0].is_linked
 custom = bpy.context.object.active_material.node_tree.nodes.new('ShaderNodeRGB')
 custom.name = 'User Custom Node'
 custom_pointer = custom.as_pointer()
