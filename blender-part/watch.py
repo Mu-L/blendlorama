@@ -1,5 +1,3 @@
-from time import time
-
 import bpy
 
 from .image_manager import ImageManager
@@ -15,40 +13,29 @@ class UvWatch:
         UvWatch.instance = self
 
     def check_for_changes(self):
-        interval = 0.5
-        t = time()
         try:
-            ImageManager.UPDATING_IMAGE.acquire()
-            print(
-                f"hello, perfcheck{time() - t}",
-            )
-            new_hash = get_fast_hash()
-            print(f"hello, perfcheck{time() - t}")
-            print("hashing func", new_hash, self.last_hash)
-            # Get server status
             status = get_server_status()
-            print(new_hash, self.last_hash)
-            print("hash:", new_hash != self.last_hash)
+            if not status["running"] or status["clients_count"] == 0:
+                return 0.5
+            new_hash = get_fast_hash()
             if (
                 new_hash != self.last_hash
                 and status["running"]
                 and status["clients_count"] > 0
             ):
-                dd = getUvOverlay()
-                print("uv data changed, sending overlay")
                 send_message(
                     {
                         "type": "GET_UV_OVERLAY",
-                        "data": dd,
+                        "protocol_version": 1,
+                        "data": getUvOverlay(),
                         "noshow": True,
                         "requestId": -1,
                     }
                 )
                 self.last_hash = new_hash
-        finally:
-            ImageManager.UPDATING_IMAGE.release()
-            print(interval)
-            return interval
+        except Exception as exc:
+            print(f"[Blendlorama] UV watcher: {exc}")
+        return 0.5
 
 
 class ImagesStateWatch:
@@ -59,10 +46,13 @@ class ImagesStateWatch:
         ImagesStateWatch.instance = self
 
     def check_for_changes(self):
+        status = get_server_status()
+        if not status["running"] or status["clients_count"] == 0:
+            return 0.5
         data = set()
         for image in bpy.data.images:
             # Skip special image types that shouldn't be monitored
-            if image.type in ["RENDER_RESULT", "COMPOSITING", "MULTILAYER"]:
+            if image.get("blendlorama_layer") or image.type in ["RENDER_RESULT", "COMPOSITING", "MULTILAYER"]:
                 continue
 
             data.add(
@@ -79,34 +69,12 @@ class ImagesStateWatch:
 
         new_hash = hash(frozenset(data))
 
-        # Get server status
-        status = get_server_status()
         if (
             new_hash != self.last_hash
             and status["running"]
             and status["clients_count"] > 0
         ):
-            data = []
-            for image in bpy.data.images:
-                # Skip special image types that shouldn't be sent to clients
-                if image.type in ["RENDER_RESULT", "COMPOSITING", "MULTILAYER"]:
-                    continue
-
-                data.append(
-                    {
-                        "name": image.name,
-                        "path": bpy.path.abspath(image.filepath)
-                        if image.filepath
-                        else "",
-                        "size": [image.size[0], image.size[1]],
-                    }
-                )
             self.last_hash = new_hash
-            send_message(
-                {
-                    "type": "GET_IMAGES",
-                    "data": data,
-                    "requestId": -1,
-                }
-            )
+            from .blender_integration import get_images
+            get_images()
         return 0.5

@@ -1,0 +1,32 @@
+id = "pixelorama_sync"
+schema_version = "1.0.0"
+version = "0.1.1"
+name = "Pixelorama Sync"
+tagline = "Real-time UV and texture sync between Blender and Pixelorama"
+maintainer = "yuchenyang1994"
+type = "add-on"
+website = "https://github.com/yuchenyang1994/blendlorama"
+tags = ["Paint", "UV"]
+blender_version_min = "4.5.0"
+license = ["SPDX:MIT"]
+copyright = ["2025 Heisenshark", "2025 yuchenyang1994"]
+[permissions]
+network = "Sync UVs and textures with Pixelorama over local WebSocket"
+files = "Read and write texture files for local synchronization"
+
+[build]
+paths = [
+  "__init__.py",
+  "blender_integration.py",
+  "image_manager.py",
+  "layer_material.py",
+  "layer_model.py",
+  "layer_watch.py",
+  "operators.py",
+  "server.py",
+  "texture_processor.py",
+  "ui.py",
+  "unwrap_tools.py",
+  "uv_extractor.py",
+  "watch.py",
+]

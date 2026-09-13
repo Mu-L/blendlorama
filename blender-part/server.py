@@ -1,203 +1,342 @@
+"""Small dependency-free RFC 6455 server used by the Blender extension.
+
+Only loopback clients are accepted. Callbacks run on the server thread and
+therefore must only enqueue data for Blender's main thread.
+"""
+
+from __future__ import annotations
+
 import asyncio
+import base64
+import hashlib
 import json
+import struct
 import threading
-import traceback
+from dataclasses import dataclass, field
 
-import websockets
 
-connected_clients = set()
-server_thread = None
-server_loop = None
+HOST = "127.0.0.1"
+PORT = 8765
+MAX_MESSAGE_BYTES = 16 * 1024 * 1024
+_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
+
+connected_clients: set["_Client"] = set()
+server_thread: threading.Thread | None = None
+server_loop: asyncio.AbstractEventLoop | None = None
 server_running = False
-stop_event = None
-websocket_server = None
+server_error = ""
+_server: asyncio.Server | None = None
+_startup_event: threading.Event | None = None
+_state_lock = threading.Lock()
 
-# Callback for Blender integration (called from Blender's main thread)
 on_client_connected_callback = None
 on_client_disconnected_callback = None
 on_message_received_callback = None
 
 
-async def ws_handler(websocket):
-    # Add client to connection list
-    connected_clients.add(websocket)
-    client_info = f"{websocket.remote_address[0]}:{websocket.remote_address[1]}"
-    print(f"Client {client_info} connected. Total clients: {len(connected_clients)}")
+@dataclass(eq=False)
+class _Client:
+    reader: asyncio.StreamReader
+    writer: asyncio.StreamWriter
+    info: str
+    send_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    closed: bool = False
 
+    async def send_text(self, text: str) -> None:
+        async with self.send_lock:
+            if self.closed:
+                raise ConnectionError("client is closed")
+            self.writer.write(_encode_frame(0x1, text.encode("utf-8")))
+            await self.writer.drain()
+
+    async def send_control(self, opcode: int, payload: bytes = b"") -> None:
+        async with self.send_lock:
+            if self.closed:
+                return
+            self.writer.write(_encode_frame(opcode, payload))
+            await self.writer.drain()
+
+    async def close(self, code: int = 1000, reason: str = "") -> None:
+        if self.closed:
+            return
+        try:
+            payload = struct.pack("!H", code) + reason.encode("utf-8")[:123]
+            await self.send_control(0x8, payload)
+        except (ConnectionError, OSError):
+            pass
+        self.closed = True
+        self.writer.close()
+        try:
+            await self.writer.wait_closed()
+        except (ConnectionError, OSError):
+            pass
+
+
+def _encode_frame(opcode: int, payload: bytes) -> bytes:
+    length = len(payload)
+    head = bytes((0x80 | opcode,))
+    if length < 126:
+        return head + bytes((length,)) + payload
+    if length <= 0xFFFF:
+        return head + bytes((126,)) + struct.pack("!H", length) + payload
+    return head + bytes((127,)) + struct.pack("!Q", length) + payload
+
+
+async def _read_frame(reader: asyncio.StreamReader) -> tuple[bool, int, bytes]:
+    first, second = await reader.readexactly(2)
+    fin = bool(first & 0x80)
+    opcode = first & 0x0F
+    masked = bool(second & 0x80)
+    length = second & 0x7F
+    if first & 0x70:
+        raise ValueError("reserved WebSocket bits are not supported")
+    if not masked:
+        raise ValueError("client frames must be masked")
+    if length == 126:
+        length = struct.unpack("!H", await reader.readexactly(2))[0]
+    elif length == 127:
+        length = struct.unpack("!Q", await reader.readexactly(8))[0]
+    if length > MAX_MESSAGE_BYTES:
+        raise ValueError("message is too large")
+    mask = await reader.readexactly(4)
+    payload = bytearray(await reader.readexactly(length))
+    for index in range(length):
+        payload[index] ^= mask[index & 3]
+    return fin, opcode, bytes(payload)
+
+
+async def _handshake(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> bool:
     try:
-        # Set up ping/pong heartbeat to keep connection alive
-        await websocket.ping()
+        request = await asyncio.wait_for(reader.readuntil(b"\r\n\r\n"), timeout=5)
+    except (asyncio.TimeoutError, asyncio.IncompleteReadError, asyncio.LimitOverrunError):
+        return False
+    if len(request) > 16384:
+        return False
+    try:
+        text = request.decode("latin-1")
+        lines = text.split("\r\n")
+        method, _path, _version = lines[0].split(" ", 2)
+        headers = {}
+        for line in lines[1:]:
+            if ":" in line:
+                key, value = line.split(":", 1)
+                headers[key.strip().lower()] = value.strip()
+        key = headers["sec-websocket-key"]
+    except (KeyError, ValueError, UnicodeDecodeError):
+        return False
+    if method != "GET" or headers.get("upgrade", "").lower() != "websocket":
+        return False
+    if "upgrade" not in headers.get("connection", "").lower():
+        return False
+    accept = base64.b64encode(hashlib.sha1((key + _GUID).encode("ascii")).digest()).decode("ascii")
+    writer.write(
+        (
+            "HTTP/1.1 101 Switching Protocols\r\n"
+            "Upgrade: websocket\r\n"
+            "Connection: Upgrade\r\n"
+            f"Sec-WebSocket-Accept: {accept}\r\n\r\n"
+        ).encode("ascii")
+    )
+    await writer.drain()
+    return True
 
-        # Send welcome message to newly connected client
-        welcome_msg = {
-            "type": "welcome",
+
+async def _handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+    peer = writer.get_extra_info("peername")
+    info = f"{peer[0]}:{peer[1]}" if peer else "local"
+    client: _Client | None = None
+    try:
+        if not await _handshake(reader, writer):
+            writer.close()
+            await writer.wait_closed()
+            return
+        client = _Client(reader, writer, info)
+        with _state_lock:
+            connected_clients.add(client)
+        await client.send_text(json.dumps({
+            "type": "WELCOME",
+            "protocol_version": 1,
             "message": "Connected to Blender Pixel Sync Server",
-            "client_id": f"{client_info}",
-        }
-        await websocket.send(json.dumps(welcome_msg))
-
-        # Trigger Blender callback if set
+            "client_id": info,
+        }))
         if on_client_connected_callback:
-            on_client_connected_callback(client_info, websocket)
+            on_client_connected_callback(info)
 
-        async for message in websocket:
-            print(f"Received from client {client_info}: {message}")
+        fragments = bytearray()
+        fragment_opcode = 0
+        while True:
+            fin, opcode, payload = await _read_frame(reader)
+            if opcode == 0x8:
+                break
+            if opcode == 0x9:
+                await client.send_control(0xA, payload)
+                continue
+            if opcode == 0xA:
+                continue
+            if opcode == 0x2:
+                await client.close(1003, "binary messages are not supported")
+                return
+            if opcode == 0x1:
+                if fragment_opcode:
+                    raise ValueError("new message before fragmented message completed")
+                fragment_opcode = opcode
+                fragments.extend(payload)
+            elif opcode == 0x0 and fragment_opcode:
+                fragments.extend(payload)
+            else:
+                raise ValueError("unsupported WebSocket opcode")
+            if len(fragments) > MAX_MESSAGE_BYTES:
+                raise ValueError("message is too large")
+            if not fin:
+                continue
+            raw = bytes(fragments)
+            fragments.clear()
+            fragment_opcode = 0
             try:
-                # Parse message to see if it's a specific request
-                msg_data = json.loads(message)
-                print(f"Parsed message type: {msg_data.get('type', 'unknown')}")
-
-                # Specific message handling logic can be added here
-                # For now, keep simple echo
-                if on_message_received_callback:
-                    on_message_received_callback(client_info, msg_data)
-
-            except json.JSONDecodeError:
-                # If not JSON, echo directly
-                await websocket.send("Echo: eco")
-
-    except websockets.exceptions.ConnectionClosed as e:
-        print(f"Client {client_info} disconnected - Code: {e.code}, Reason: {e.reason}")
-    except Exception as e:
-        print(f"Unexpected error with client {client_info}: {e}")
-        print(f"Full traceback: {traceback.format_exc()}")
+                message = json.loads(raw.decode("utf-8"))
+            except (UnicodeDecodeError, json.JSONDecodeError):
+                await client.send_text(json.dumps({"type": "ERROR", "error": "invalid JSON"}))
+                continue
+            if not isinstance(message, dict):
+                await client.send_text(json.dumps({"type": "ERROR", "error": "message must be an object"}))
+                continue
+            if on_message_received_callback:
+                on_message_received_callback(info, message)
+    except (asyncio.IncompleteReadError, ConnectionError, OSError):
+        pass
+    except ValueError as exc:
+        if client:
+            await client.close(1002, str(exc))
     finally:
-        # Remove client from connection list
-        connected_clients.discard(websocket)
-        print(f"Client {client_info} removed. Total clients: {len(connected_clients)}")
+        if client:
+            with _state_lock:
+                connected_clients.discard(client)
+            if on_client_disconnected_callback:
+                on_client_disconnected_callback(info)
+            await client.close()
+        else:
+            writer.close()
 
 
-def start_server_async():
-    global server_loop, stop_event, websocket_server
-    server_loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(server_loop)
-    stop_event = asyncio.Event()
-
-    async def run_server():
-        global websocket_server
-
-        # Configure websocket server parameters for improved connection stability
-        websocket_server = await websockets.serve(
-            ws_handler,
-            "0.0.0.0",
-            8765,
-            ping_interval=20,  # Send ping every 20 seconds
-            ping_timeout=10,  # Ping timeout 10 seconds
-            close_timeout=1,  # Close timeout 1 second
-            max_size=10**7,  # Max message size 10MB
-            max_queue=32,  # Max queue 32
-            compression=None,  # Disable compression for stability
-        )
-        print("Server started on ws://0.0.0.0:8765 with improved stability settings")
-
-        # Wait for stop signal
-        await stop_event.wait()
-        print("Server stopping...")
-
-        # Close all client connections
-        for client in list(connected_clients):
-            try:
-                await client.close()
-            except:
-                pass
-
-        # Close websocket server
-        if websocket_server:
-            websocket_server.close()
-            await websocket_server.wait_closed()
-            websocket_server = None
-
-    server_loop.run_until_complete(run_server())
-
-
-def start_server():
-    global server_thread, server_running
-    if server_running:
+async def _serve() -> None:
+    global _server, server_running, server_error
+    try:
+        _server = await asyncio.start_server(_handle_client, HOST, PORT)
+        with _state_lock:
+            server_running = True
+            server_error = ""
+    except OSError as exc:
+        with _state_lock:
+            server_running = False
+            server_error = str(exc)
         return
-    server_thread = threading.Thread(target=start_server_async, daemon=True)
-    server_thread.start()
-    server_running = True
+    finally:
+        if _startup_event:
+            _startup_event.set()
+    await _server.serve_forever()
 
 
-def stop_server():
-    global server_loop, server_running, stop_event
-    if not server_running:
-        return
-    if server_loop and stop_event:
-        # Send stop signal
-        server_loop.call_soon_threadsafe(stop_event.set)
-        # Wait for thread to end
-        if server_thread and server_thread.is_alive():
-            server_thread.join(timeout=5)
+def _run_server() -> None:
+    global server_loop, _server, server_running
+    loop = asyncio.new_event_loop()
+    server_loop = loop
+    asyncio.set_event_loop(loop)
+    try:
+        loop.run_until_complete(_serve())
+    except asyncio.CancelledError:
+        pass
+    finally:
+        clients = list(connected_clients)
+        if clients:
+            loop.run_until_complete(asyncio.gather(*(client.close() for client in clients), return_exceptions=True))
+        if _server:
+            _server.close()
+            loop.run_until_complete(_server.wait_closed())
+        pending = asyncio.all_tasks(loop)
+        for task in pending:
+            task.cancel()
+        if pending:
+            loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
+        loop.close()
+        with _state_lock:
+            connected_clients.clear()
+            server_running = False
+        _server = None
         server_loop = None
-        stop_event = None
-    server_running = False
-    print("Server stopped")
 
 
-def get_server_status():
-    """Get server status information"""
-    return {
-        "running": server_running,
-        "clients_count": len(connected_clients),
-        "loop_active": server_loop is not None,
-    }
+def start_server() -> tuple[bool, str]:
+    global server_thread, _startup_event, server_error
+    with _state_lock:
+        if server_running:
+            return True, ""
+        if server_thread and server_thread.is_alive():
+            return False, "server is still starting"
+        server_error = ""
+        _startup_event = threading.Event()
+        server_thread = threading.Thread(target=_run_server, name="Blendlorama WebSocket", daemon=True)
+        server_thread.start()
+    if not _startup_event.wait(timeout=3):
+        return False, "server startup timed out"
+    with _state_lock:
+        return server_running, server_error
 
 
-def set_callbacks(on_connected=None, on_disconnected=None, on_message=None):
-    """Set callback functions for Blender integration"""
-    global \
-        on_client_connected_callback, \
-        on_client_disconnected_callback, \
-        on_message_received_callback
+def stop_server() -> None:
+    global server_thread
+    loop = server_loop
+    server = _server
+    if loop and loop.is_running():
+        def stop() -> None:
+            if server:
+                server.close()
+            for task in asyncio.all_tasks(loop):
+                task.cancel()
+        loop.call_soon_threadsafe(stop)
+    thread = server_thread
+    if thread and thread.is_alive() and thread is not threading.current_thread():
+        thread.join(timeout=5)
+    server_thread = None
+
+
+def get_server_status() -> dict:
+    with _state_lock:
+        return {
+            "running": server_running,
+            "clients_count": len(connected_clients),
+            "loop_active": server_loop is not None,
+            "address": f"ws://{HOST}:{PORT}",
+            "error": server_error,
+        }
+
+
+def set_callbacks(on_connected=None, on_disconnected=None, on_message=None) -> None:
+    global on_client_connected_callback, on_client_disconnected_callback, on_message_received_callback
     on_client_connected_callback = on_connected
     on_client_disconnected_callback = on_disconnected
     on_message_received_callback = on_message
 
 
-def send_message(msg):
-    if server_loop is None:
-        print("Server not running - cannot send message")
+async def _broadcast(message_data: str) -> None:
+    clients = list(connected_clients)
+    if not clients:
+        return
+    results = await asyncio.gather(*(client.send_text(message_data) for client in clients), return_exceptions=True)
+    for client, result in zip(clients, results):
+        if isinstance(result, Exception):
+            with _state_lock:
+                connected_clients.discard(client)
+            await client.close()
+
+
+def send_message(message: dict) -> bool:
+    loop = server_loop
+    if not loop or not loop.is_running() or not connected_clients:
         return False
-
-    if not connected_clients:
-        print("No clients connected - cannot send message")
-        return False
-
-    async def _send():
-        # Broadcast to all clients
-        dead_clients = set()
-        message_data = json.dumps(msg)
-
-        for ws in connected_clients:
-            try:
-                await ws.send(message_data)
-                print(f"Message sent to {ws.remote_address[0]}:{ws.remote_address[1]}")
-            except websockets.exceptions.ConnectionClosed as e:
-                print(
-                    f"Client {ws.remote_address[0]}:{ws.remote_address[1]} connection closed during send - Code: {e.code}"
-                )
-                dead_clients.add(ws)
-            except Exception as e:
-                print(
-                    f"Error sending to client {ws.remote_address[0]}:{ws.remote_address[1]}: {e}"
-                )
-                dead_clients.add(ws)
-
-        # Clean up disconnected clients
-        for ws in dead_clients:
-            connected_clients.discard(ws)
-            print(f"Removed dead client {ws.remote_address[0]}:{ws.remote_address[1]}")
-
-        if dead_clients:
-            print(
-                f"Cleaned up {len(dead_clients)} dead connections. Active clients: {len(connected_clients)}"
-            )
-
     try:
-        # Safe call in server thread
-        server_loop.call_soon_threadsafe(asyncio.create_task, _send())
+        data = json.dumps(message, separators=(",", ":"), ensure_ascii=False)
+        asyncio.run_coroutine_threadsafe(_broadcast(data), loop)
         return True
-    except Exception as e:
-        print(f"Failed to queue message for sending: {e}")
+    except (TypeError, RuntimeError, ValueError) as exc:
+        print(f"[Blendlorama] could not queue message: {exc}")
         return False

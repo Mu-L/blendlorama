@@ -1,0 +1,118 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Godot
+        uses: chickensoft-games/setup-godot@v2
+        with:
+          version: "4.7.2"
+          use-dotnet: false
+          include-templates: true
+
+      - name: Install Blender 4.5 LTS
+        run: |
+          version=4.5.12
+          archive="blender-${version}-linux-x64.tar.xz"
+          wget -q "https://download.blender.org/release/Blender4.5/${archive}"
+          wget -q "https://download.blender.org/release/Blender4.5/blender-${version}.sha256"
+          grep " ${archive}$" "blender-${version}.sha256" | sha256sum --check
+          tar -xf "$archive" -C "$RUNNER_TEMP"
+          echo "BLENDER=$RUNNER_TEMP/blender-${version}-linux-x64/blender" >> "$GITHUB_ENV"
+
+      - name: Check out Pixelorama 1.2.2 source for API tests
+        run: git clone --depth 1 --branch v1.2.2 https://github.com/Orama-Interactive/Pixelorama.git ../Pixelorama
+
+      - name: Run source tests
+        run: |
+          python -m unittest discover -s tests -p 'test_*.py'
+          python -m compileall -q blender-part
+          "$BLENDER" -b --factory-startup --python-exit-code 1 --python tests/blender_layers.py
+          godot --headless --path blender-lorama --script "$PWD/tests/pixelorama_layers.gd"
+          python tests/websocket_server_fixture.py &
+          fixture_pid=$!
+          trap 'kill "$fixture_pid" 2>/dev/null || true' EXIT
+          godot --headless --path blender-lorama --script "$PWD/tests/godot_websocket.gd"
+          kill "$fixture_pid" 2>/dev/null || true
+          wait "$fixture_pid" || true
+          trap - EXIT
+
+      - name: Build installable packages
+        env:
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          if [[ "$REF_TYPE" == tag && "$REF_NAME" == v* ]]; then
+            python build.py --all --clean --blender "$BLENDER" --release-version "${REF_NAME#v}"
+          else
+            python build.py --all --clean --blender "$BLENDER"
+          fi
+
+      - name: Install and enable packaged Blender extension
+        env:
+          BLENDER_USER_CONFIG: ${{ runner.temp }}/blender-config
+          BLENDER_USER_EXTENSIONS: ${{ runner.temp }}/blender-extensions
+        run: |
+          package=$(find dist -maxdepth 1 -name 'pixelorama_sync-*.zip' -print -quit)
+          "$BLENDER" --factory-startup --command extension install-file -r user_default -e "$package"
+          "$BLENDER" -b --python-exit-code 1 --python tests/blender_install.py
+
+      - name: Verify checksums
+        working-directory: dist
+        run: sha256sum --check SHA256SUMS.txt
+
+      - name: Upload packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: blendlorama-dist
+          path: |
+            dist/*.zip
+            dist/BlenderPixelorama.pck
+            dist/SHA256SUMS.txt
+          if-no-files-found: error
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: blendlorama-dist
+          path: dist
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*.zip
+            dist/BlenderPixelorama.pck
+            dist/SHA256SUMS.txt
+          fail_on_unmatched_files: true
+          generate_release_notes: true
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-') }}

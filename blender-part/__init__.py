@@ -1,66 +1,51 @@
-bl_info = {
-    "name": "Pixelorama Sync",
-    "author": "yuchenyang1994",
-    "version": (0, 1, 0),
-    "blender": (4, 5, 0),
-    "category": "Paint",
-    "description": "Companion to the Pixelorama Sync plugin. Provides a WebSocket server to sync UVs and textures.",
-    "location": "Image Editor > UI Panel > Pixelorama Sync",
-}
-
-import sys
-
 import bpy
 
-from . import deps
+from .blender_integration import clear_pending_events, process_pending_events, setup_blender_integration
+from .image_manager import ImageManager
+from .watch import UvWatch, ImagesStateWatch
+from .operators import (
+    LAYER_OT_apply_material,
+    LAYER_OT_export,
+    LAYER_OT_recompute_preview,
+    LAYER_OT_set_active,
+    SERVER_OT_start,
+    SERVER_OT_stop,
+    WORLD_OT_setup_grid,
+)
+from .server import set_callbacks, stop_server
+from .texture_processor import (
+    TEXTURE_OT_check_texture,
+    TEXTURE_OT_create_checker_texture,
+)
+from .ui import (
+    WS_PT_LayerPanel,
+    WS_PT_ServerPanel,
+    WS_PT_TextureToolsPanel,
+    WS_PT_UVToolsPanel,
+    WS_PT_WorldGridPanel,
+)
+from .unwrap_tools import UV_OT_unwrap_pixel_perfect, UV_OT_unwrap_to_grid
+from .layer_watch import LayerWatch
+from . import layer_model
 
-dependencies_loaded = False
-
-try:
-    deps.install_dependencies()
-
-    if deps.are_dependencies_installed():
-        dependencies_loaded = True
-    else:
-        print("Pixelorama Sync: Dependencies failed to install.")
-
-except Exception as e:
-    print(f"Pixelorama Sync Error: Dependency check failed: {e}")
-
-
-if dependencies_loaded:
-    from .blender_integration import setup_blender_integration
-    from .image_manager import ImageManager
-    from .operators import SERVER_OT_start, SERVER_OT_stop, WORLD_OT_setup_grid
-    from .server import stop_server
-    from .texture_processor import (
-        TEXTURE_OT_check_texture,
-        TEXTURE_OT_create_checker_texture,
-    )
-    from .ui import (
-        WS_PT_ServerPanel,
-        WS_PT_TextureToolsPanel,
-        WS_PT_UVToolsPanel,
-        WS_PT_WorldGridPanel,
-    )
-    from .unwrap_tools import UV_OT_unwrap_pixel_perfect, UV_OT_unwrap_to_grid
-    from .watch import ImagesStateWatch, UvWatch
-
-    classes = (
-        SERVER_OT_start,
-        SERVER_OT_stop,
-        WORLD_OT_setup_grid,
-        WS_PT_ServerPanel,
-        WS_PT_UVToolsPanel,
-        WS_PT_TextureToolsPanel,
-        WS_PT_WorldGridPanel,
-        UV_OT_unwrap_pixel_perfect,
-        UV_OT_unwrap_to_grid,
-        TEXTURE_OT_check_texture,
-        TEXTURE_OT_create_checker_texture,
-    )
-else:
-    classes = ()
+classes = (
+    SERVER_OT_start,
+    SERVER_OT_stop,
+    WORLD_OT_setup_grid,
+    LAYER_OT_set_active,
+    LAYER_OT_apply_material,
+    LAYER_OT_export,
+    LAYER_OT_recompute_preview,
+    WS_PT_ServerPanel,
+    WS_PT_UVToolsPanel,
+    WS_PT_TextureToolsPanel,
+    WS_PT_WorldGridPanel,
+    WS_PT_LayerPanel,
+    UV_OT_unwrap_pixel_perfect,
+    UV_OT_unwrap_to_grid,
+    TEXTURE_OT_check_texture,
+    TEXTURE_OT_create_checker_texture,
+)
 
 
 def register_scene_properties():
@@ -79,22 +64,20 @@ def register_scene_properties():
 
 
 def unregister_scene_properties():
-    del bpy.types.Scene.pixel_checker_texture_size
-    del bpy.types.Scene.world_grid_subdivisions
+    if hasattr(bpy.types.Scene, "pixel_checker_texture_size"):
+        del bpy.types.Scene.pixel_checker_texture_size
+    if hasattr(bpy.types.Scene, "world_grid_subdivisions"):
+        del bpy.types.Scene.world_grid_subdivisions
 
 
 def register():
-    if not dependencies_loaded:
-        print(
-            "Pixelorama Sync: Dependencies missing. Plugin functionality disabled. Check console."
-        )
-        return
-
     register_scene_properties()
+    layer_model.register()
     setup_blender_integration()
     ImageManager()
     UvWatch()
     ImagesStateWatch()
+    LayerWatch()
 
     if not bpy.app.timers.is_registered(UvWatch.instance.check_for_changes):
         bpy.app.timers.register(
@@ -108,11 +91,16 @@ def register():
             persistent=True,
         )
 
-    if not bpy.app.timers.is_registered(ImageManager.INSTANCE.process_pending_updates):
+    if not bpy.app.timers.is_registered(LayerWatch.instance.check_for_changes):
         bpy.app.timers.register(
-            ImageManager.INSTANCE.process_pending_updates,
-            first_interval=0.1,
+            LayerWatch.instance.check_for_changes,
+            first_interval=0.4,
             persistent=True,
+        )
+
+    if not bpy.app.timers.is_registered(process_pending_events):
+        bpy.app.timers.register(
+            process_pending_events, first_interval=0.05, persistent=True
         )
 
     for cls in classes:
@@ -120,25 +108,31 @@ def register():
 
 
 def unregister():
-    if not dependencies_loaded:
-        return
-
     stop_server()
+
+    if bpy.app.timers.is_registered(process_pending_events):
+        bpy.app.timers.unregister(process_pending_events)
 
     for cls in reversed(classes):
         bpy.utils.unregister_class(cls)
 
-    if bpy.app.timers.is_registered(UvWatch.instance.check_for_changes):
+    if UvWatch.instance and bpy.app.timers.is_registered(UvWatch.instance.check_for_changes):
         bpy.app.timers.unregister(UvWatch.instance.check_for_changes)
-    if bpy.app.timers.is_registered(ImagesStateWatch.instance.check_for_changes):
+    if ImagesStateWatch.instance and bpy.app.timers.is_registered(ImagesStateWatch.instance.check_for_changes):
         bpy.app.timers.unregister(ImagesStateWatch.instance.check_for_changes)
+    if LayerWatch.instance and bpy.app.timers.is_registered(LayerWatch.instance.check_for_changes):
+        bpy.app.timers.unregister(LayerWatch.instance.check_for_changes)
 
-    try:
-        if bpy.app.timers.is_registered(ImageManager.INSTANCE.process_pending_updates):
-            bpy.app.timers.unregister(ImageManager.INSTANCE.process_pending_updates)
-    except:
-        pass
-
+    import shutil
+    if LayerWatch.instance:
+        shutil.rmtree(LayerWatch.instance._tempdir, ignore_errors=True)
+    LayerWatch.instance = None
+    UvWatch.instance = None
+    ImagesStateWatch.instance = None
+    ImageManager.reset()
+    clear_pending_events()
+    set_callbacks()
+    layer_model.unregister()
     unregister_scene_properties()
 
 
