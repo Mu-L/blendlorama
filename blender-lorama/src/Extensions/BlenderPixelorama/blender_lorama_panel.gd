@@ -47,7 +47,7 @@ func _ready() -> void:
 	uv_overlay_enable_button.toggled.connect(_on_overlay_toggle)
 	image_options.item_selected.connect(_on_blender_image_selected)
 	if image_options.item_count == 0:
-		image_options.add_item("Please select Blender image")
+		image_options.add_item("Select target texture")
 	_restore_project_binding()
 
 
@@ -138,7 +138,7 @@ func _handle_uv_data(uv_data: Dictionary) -> void:
 
 func _handle_blender_images(image_list: Dictionary) -> void:
 	image_options.clear()
-	image_options.add_item("Please select Blender image")
+	image_options.add_item("Select target texture")
 	for image in image_list.get("data", []):
 		image_options.add_item(String(image.get("name", "Unnamed")))
 		image_options.set_item_metadata(image_options.item_count - 1, String(image.get("id", "")))

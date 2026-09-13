@@ -63,7 +63,7 @@ alignment = 1
 
 [node name="Label" type="Label" parent="MarginContainer/VBoxContainer/ImageListContainer"]
 layout_mode = 2
-text = "Select Blender Image"
+text = "Target Texture"
 
 [node name="ImageOptions" type="OptionButton" parent="MarginContainer/VBoxContainer/ImageListContainer"]
 layout_mode = 2

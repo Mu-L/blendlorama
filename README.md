@@ -32,9 +32,10 @@ Blender Pixel Sync enables artists to work with pixel art textures in Blender wh
 
 ## Layer sync (first version)
 
-Select the original Blender texture in Pixelorama's panel. Pixel layers from the
-current frame become separate Blender images; their composite updates the original
-image so existing material links continue to work. Hidden layers are retained.
+Select `Target Texture` in Pixelorama's panel to bind the current project to a Blender
+texture. Pixel layers from the current frame become separate Blender images; their
+composite updates the target texture so existing material links continue to work.
+Hidden layers are retained.
 
 - Manage layer creation, deletion, names, order, visibility and opacity in Pixelorama.
 - Selecting a layer in Pixelorama automatically switches Blender's Texture Paint

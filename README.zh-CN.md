@@ -30,8 +30,9 @@ Blender Pixel Sync 是一个实时同步工具，连接 Blender 和 Pixelorama�
 
 ## 图层同步（第一版）
 
-在 Pixelorama 面板选择 Blender 原始贴图后，当前帧的像素图层会同步成独立的
-Blender Image，并合成回原始贴图，已有材质连接可继续显示结果。
+在 Pixelorama 面板通过 `Target Texture` 将当前工程绑定到一张 Blender 目标贴图。
+当前帧的像素图层会同步成独立的 Blender Image，并合成回目标贴图，已有材质连接
+可继续显示结果。
 
 1. 在 Pixelorama 新建、删除、重命名、排序图层，或修改可见性和透明度；
    插件会自动更新 Blender。隐藏图层仍保留独立像素。
