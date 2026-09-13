@@ -49,6 +49,39 @@ classes = (
 
 
 def register_scene_properties():
+    bpy.types.Scene.pixel_uv_density = bpy.props.FloatProperty(
+        name="Texel Density",
+        description="Maximum texture pixels per world-space unit",
+        default=32.0,
+        min=1.0,
+        max=1024.0,
+    )
+    bpy.types.Scene.pixel_uv_padding = bpy.props.IntProperty(
+        name="Island Padding",
+        description="Empty pixels around packed UV islands",
+        default=2,
+        min=0,
+        max=32,
+    )
+    bpy.types.Scene.pixel_uv_snap = bpy.props.BoolProperty(
+        name="Snap to Pixels",
+        description="Snap UV vertices when doing so will not collapse a face",
+        default=True,
+    )
+    bpy.types.Scene.pixel_grid_face_size = bpy.props.IntProperty(
+        name="Grid Face Size",
+        description="Pixel width and height for Face Grid Layout",
+        default=8,
+        min=2,
+        max=256,
+    )
+    bpy.types.Scene.pixel_export_bleed = bpy.props.IntProperty(
+        name="Export RGB Bleed",
+        description="Copy edge colours into transparent RGB without changing alpha",
+        default=2,
+        min=0,
+        max=32,
+    )
     bpy.types.Scene.pixel_checker_texture_size = bpy.props.IntProperty(
         name="Checker Texture Size",
         default=64,
@@ -64,6 +97,15 @@ def register_scene_properties():
 
 
 def unregister_scene_properties():
+    for name in (
+        "pixel_uv_density",
+        "pixel_uv_padding",
+        "pixel_uv_snap",
+        "pixel_grid_face_size",
+        "pixel_export_bleed",
+    ):
+        if hasattr(bpy.types.Scene, name):
+            delattr(bpy.types.Scene, name)
     if hasattr(bpy.types.Scene, "pixel_checker_texture_size"):
         del bpy.types.Scene.pixel_checker_texture_size
     if hasattr(bpy.types.Scene, "world_grid_subdivisions"):

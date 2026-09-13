@@ -47,12 +47,32 @@ class WS_PT_UVToolsPanel(bpy.types.Panel):
     def draw(self, context):
         layout = self.layout
         if layout:
+            scene = context.scene
             box = layout.box()
             box.label(text="UV Unwrapping", icon="GROUP_UVS")
 
+            from .unwrap_tools import resolve_target_image
+            target = resolve_target_image(context)
+            if target:
+                box.label(text=f"Target: {target.name}", icon="IMAGE_DATA")
+                box.label(text=f"Size: {target.size[0]} x {target.size[1]}")
+            else:
+                box.label(text="No Target Texture", icon="ERROR")
+
             layout.separator()
-            layout.operator("uv.unwrap_pixel_perfect", text="Pixel Perfect Unwrap")
-            layout.operator("uv.unwrap_to_grid", text="Unwrap to Grid")
+            layout.prop(scene, "pixel_uv_density", text="Density")
+            layout.prop(scene, "pixel_uv_padding", text="Padding")
+            layout.prop(scene, "pixel_uv_snap", text="Snap")
+            unwrap = layout.operator("uv.unwrap_pixel_perfect", text="Pixel Perfect Unwrap")
+            unwrap.target_density = scene.pixel_uv_density
+            unwrap.padding = scene.pixel_uv_padding
+            unwrap.snap_to_pixels = scene.pixel_uv_snap
+
+            layout.separator()
+            layout.prop(scene, "pixel_grid_face_size", text="Face Size")
+            grid = layout.operator("uv.unwrap_to_grid", text="Face Grid Layout")
+            grid.grid_size = scene.pixel_grid_face_size
+            grid.padding = scene.pixel_uv_padding
 
             # Info text
             layout.separator()
@@ -156,6 +176,7 @@ class WS_PT_LayerPanel(bpy.types.Panel):
             base.prop(layer, "role", text="")
 
         layout.operator("pixelorama_layer.apply_material")
+        layout.prop(scene, "pixel_export_bleed", text="Export Bleed")
         layout.operator("pixelorama_layer.export")
         layout.label(text="Manage layer structure in Pixelorama", icon="INFO")
 

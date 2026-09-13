@@ -1,6 +1,7 @@
 """Run: blender -b --factory-startup --python-exit-code 1 --python tests/blender_layers.py"""
 import importlib.util
 import hashlib
+import json
 import sys
 import tempfile
 import threading
@@ -108,7 +109,15 @@ watch.check_for_changes(); assert len(sent) == 1 and sent[0]['id'] == 'b' and se
 watch.check_for_changes(); assert len(sent) == 1
 lm.apply_sync_layers(scene, packet()); watch.check_for_changes(); assert len(sent) == 1
 assert bpy.ops.pixelorama_layer.export(directory=str(folder)) == {'FINISHED'}
-assert list(folder.glob('*/layers.json'))
+manifest_path = next(folder.glob('*/layers.json'))
+assert json.loads(manifest_path.read_text())['rgb_bleed'] == 2
+# Export bleed fills hidden RGB around an opaque pixel without changing alpha.
+bleed_image = bpy.data.images.new('Bleed test', 3, 1, alpha=True)
+bleed_image.pixels[:] = [0, 0, 0, 0, 1, .25, 0, 1, 0, 0, 0, 0]
+bleed_pixels = lw._pixels_with_rgb_bleed(bleed_image, 1).reshape((1, 3, 4))
+np.testing.assert_allclose(bleed_pixels[0, 0], [1, .25, 0, 0], atol=.005)
+np.testing.assert_allclose(bleed_pixels[0, 2], [1, .25, 0, 0], atol=.005)
+bpy.data.images.remove(bleed_image)
 # Transparent-background blend must not darken source RGB.
 for mode in ('normal', 'multiply', 'screen', 'darken', 'lighten', 'overlay'):
     out = lm._blend_channel(np.zeros((1, 1, 4)), np.array([[[.8, .3, .1, .5]]]), mode, 1)

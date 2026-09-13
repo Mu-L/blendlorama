@@ -178,19 +178,21 @@ class LAYER_OT_export(bpy.types.Operator):
         from . import layer_model
         from .layer_watch import save_png
         name = context.scene.pixelorama_layer_state.active_image
+        bleed = int(context.scene.pixel_export_bleed)
         layers = layer_model._stack_for_image(context.scene, name)
         if not layers or not self.directory:
             return {"CANCELLED"}
         folder = Path(bpy.path.abspath(self.directory)) / hashlib.sha256(name.encode()).hexdigest()[:12]
         folder.mkdir(parents=True, exist_ok=True)
-        manifest = {"version": 1, "image": name, "order": "bottom_to_top", "layers": []}
+        manifest = {"version": 1, "image": name, "order": "bottom_to_top",
+                    "rgb_bleed": bleed, "layers": []}
         try:
             for layer in sorted(layers, key=lambda item: item.order_index):
                 img = layer_model.find_layer_image(name, layer.layer_id, layer.image_id)
                 if img is None:
                     raise ValueError(f"Missing image for {layer.name}")
                 filename = hashlib.sha256(layer.layer_id.encode()).hexdigest()[:16] + ".png"
-                save_png(img, str(folder / filename))
+                save_png(img, str(folder / filename), bleed=bleed)
                 manifest["layers"].append({"id": layer.layer_id, "name": layer.name,
                     "file": filename, "role": layer.role, "visible": layer.visible,
                     "opacity": layer.opacity, "blend_mode": layer.blend_mode,

@@ -118,7 +118,50 @@ class LayerWatch:
                 pass
 
 
-def save_png(image, path):
+def _pixels_with_rgb_bleed(image, radius):
+    """Copy neighbouring RGB into transparent pixels while preserving alpha."""
+    width, height = image.size
+    pixels = np.empty(width * height * 4, dtype=np.float32)
+    image.pixels.foreach_get(pixels)
+    pixels = pixels.reshape((height, width, 4))
+    original_alpha = pixels[..., 3].copy()
+    filled = original_alpha > 0.0
+    rgb = pixels[..., :3].copy()
+    for _ in range(radius):
+        sums = np.zeros_like(rgb)
+        counts = np.zeros((height, width), dtype=np.float32)
+        for dy, dx in ((-1, 0), (1, 0), (0, -1), (0, 1),
+                       (-1, -1), (-1, 1), (1, -1), (1, 1)):
+            source_y = slice(max(0, -dy), min(height, height - dy))
+            source_x = slice(max(0, -dx), min(width, width - dx))
+            target_y = slice(max(0, dy), min(height, height + dy))
+            target_x = slice(max(0, dx), min(width, width + dx))
+            mask = filled[source_y, source_x]
+            sums[target_y, target_x] += rgb[source_y, source_x] * mask[..., None]
+            counts[target_y, target_x] += mask
+        grow = (~filled) & (counts > 0)
+        if not np.any(grow):
+            break
+        rgb[grow] = sums[grow] / counts[grow, None]
+        filled[grow] = True
+    pixels[..., :3] = rgb
+    pixels[..., 3] = original_alpha
+    return pixels.reshape(-1)
+
+
+def save_png(image, path, bleed=0):
+    if bleed > 0:
+        temp = bpy.data.images.new(
+            "Blendlorama Export Bleed", width=image.size[0], height=image.size[1], alpha=True)
+        try:
+            temp.alpha_mode = "STRAIGHT"
+            temp.colorspace_settings.name = image.colorspace_settings.name
+            temp.pixels.foreach_set(_pixels_with_rgb_bleed(image, int(bleed)))
+            temp.update()
+            save_png(temp, path)
+        finally:
+            bpy.data.images.remove(temp)
+        return
     previous = image.filepath_raw, image.file_format
     try:
         image.filepath_raw = path

@@ -52,8 +52,9 @@ Hidden layers are retained.
   custom property first.
 - `Export Layer PNGs + Manifest` writes original RGBA layer PNGs and `layers.json`
   with names, order, roles, visibility, opacity, blend modes and frame indices into
-  a project-name-derived subdirectory. Re-export overwrites matching files. Engine
-  shaders can consume each texture independently; apply manifest opacity separately.
+  a project-name-derived subdirectory. `Export Bleed` copies edge RGB into transparent
+  pixels without changing alpha, reducing mipmap seams. Re-export overwrites matching
+  files. Engine shaders can consume each texture independently; apply manifest opacity separately.
 
 Supported: ordinary pixel layers, Normal, Erase, Darken, Lighten, Multiply, Screen,
 Overlay. Unsupported modes warn and preview as Normal. Group compositing, clipping,
@@ -192,9 +193,12 @@ it contains no platform-specific binary dependency.
 
 2. **UV Unwrapping**:
 
-   - Use "Pixel Perfect Unwrap" for clean, pixel-aligned UVs
-   - Or use "Unwrap to Grid" for grid-based UV layouts
-   - Check UVs in the UV Editor for proper alignment
+   - Link or select a Target Texture; its real width and height define the pixel grid
+   - Choose texel density, integer-pixel island padding and optional pixel snapping
+   - Use "Pixel Perfect Unwrap" to respect seams (or use Smart Project when there
+     are no seams), account for object scale and non-square textures, then pack islands
+   - Use "Face Grid Layout" when every selected face should occupy a fixed pixel cell
+   - If the requested density does not fit, the tool lowers it and reports the result
 
 3. **Texture Creation**:
    - Export UV layout to Pixelorama
@@ -216,8 +220,8 @@ The Blender addon provides several panels:
 
 ### UV Tools Panel
 
-- **Pixel Perfect Unwrap**: Unwrap UVs with pixel-perfect precision
-- **Unwrap to Grid**: Create grid-based UV layouts
+- **Pixel Perfect Unwrap**: Scale, safely snap, validate and integer-pack UV islands
+- **Face Grid Layout**: Place separate faces in fixed-size pixel cells
 - **Export UV**: Send UV data to Pixelorama
 
 ### Texture Tools Panel
@@ -241,7 +245,7 @@ The Blender addon provides several panels:
 
 ### Pixelorama
 
-- **Version**: Supports Pixelorama API version 8
+- **Version**: Pixelorama 1.2.2, extension API version 9
 - **Platform**: Windows, macOS, Linux
 
 ## Technical Details
@@ -320,7 +324,8 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 - **Original Author**: Heisenshark
 - **Refactored by**: Assistant
 - **Pixelorama Extension**: yuchenyang1994
-- **UV Unwrapping Algorithm**: Based on Magic-UV by Nutti
+- **UV Unwrapping Algorithm**: Texture-aware density and integer packing, with
+  island discovery adapted from Magic-UV by Nutti
 
 ## Support
 

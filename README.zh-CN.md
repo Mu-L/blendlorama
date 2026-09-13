@@ -49,6 +49,7 @@ Blender Pixel Sync 是一个实时同步工具，连接 Blender 和 Pixelorama�
    需要自行编辑节点时请先复制材质并移除 `blendlorama_image` 自定义属性。
 4. 点击 `Export Layer PNGs + Manifest` 选择目录，得到每层原始 RGBA PNG 和
    `layers.json`（名称、顺序、用途、可见性、透明度、混合模式、帧号）。
+   `Export Bleed` 会把边缘颜色扩展到透明像素的 RGB，但保持 Alpha 为 0，减少 mipmap 接缝。
    输出放在按贴图名生成的子目录，同一目录再次导出会覆盖同 ID 的文件。
    游戏引擎可按用途把图层连接到 Base Color、Emission 或自定义 shader。
    PNG 不烘焙图层透明度；引擎需使用清单中的 opacity。
@@ -191,9 +192,12 @@ python build.py --all --godot /path/to/godot
 
 2. **UV 展开**：
 
-   - 使用"像素完美展开"获得干净的、像素对齐的 UV
-   - 或使用"展开到网格"进行基于网格的 UV 布局
-   - 在 UV 编辑器中检查 UV 的正确对齐
+   - 先链接或选择 Target Texture，以真实宽高作为像素网格
+   - 设置纹素密度、UV 岛整数像素间距及是否吸附像素
+   - “Pixel Perfect Unwrap”会尊重已有 Seam；没有 Seam 时自动使用 Smart Project，
+     再按对象实际缩放和非方形贴图尺寸调整并打包 UV 岛
+   - “Face Grid Layout”用于让每个选中面占用固定大小的像素格
+   - 目标密度放不下时会自动降低，并在 Blender 状态栏报告最终密度
 
 3. **纹理创建**：
    - 将 UV 布局导出到 Pixelorama
@@ -215,8 +219,8 @@ Blender 插件提供多个面板：
 
 ### UV 工具面板
 
-- **像素完美展开**：像素完美精度的 UV 展开
-- **展开到网格**：创建基于网格的 UV 布局
+- **Pixel Perfect Unwrap**：缩放、安全吸附、校验并按整数像素打包 UV 岛
+- **Face Grid Layout**：把独立面放入固定大小的像素格
 - **导出 UV**：将 UV 数据发送到 Pixelorama
 
 ### 纹理工具面板
@@ -240,7 +244,7 @@ Blender 插件提供多个面板：
 
 ### Pixelorama
 
-- **版本**：支持 Pixelorama API 版本 8
+- **版本**：Pixelorama 1.2.2，扩展 API 版本 9
 - **平台**：Windows、macOS、Linux
 
 ## 技术详情
@@ -319,7 +323,7 @@ blender-pixel-sync/
 - **原作者**：Heisenshark
 - **重构者**：Assistant
 - **Pixelorama 扩展**：yuchenyang1994
-- **UV 展开算法**：基于 Nutti 的 Magic-UV
+- **UV 展开算法**：根据目标贴图计算纹素密度并进行整数像素打包；UV 岛识别部分改编自 Nutti 的 Magic-UV
 
 ## 支持
 
