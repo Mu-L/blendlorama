@@ -233,6 +233,25 @@ func bind_project(project, image_id: String, image_name: String) -> void:
 		project.has_changed = true
 
 
+func match_project_size(target_size: Vector2i) -> bool:
+	if not extensions_api or target_size.x <= 0 or target_size.y <= 0:
+		return false
+	var project = extensions_api.project.current_project
+	if Vector2i(project.size) == target_size:
+		return true
+	var old_size := Vector2i(project.size)
+	var offset := Vector2i(
+		floori((target_size.x - old_size.x) / 2.0),
+		floori((target_size.y - old_size.y) / 2.0)
+	)
+	remote_applying = true
+	extensions_api.general.get_drawing_algos().resize_canvas(
+		target_size.x, target_size.y, offset.x, offset.y
+	)
+	remote_applying = false
+	return Vector2i(project.size) == target_size
+
+
 func bound_image_id(project) -> String:
 	return String(project.get_meta(IMAGE_ID_META, ""))
 

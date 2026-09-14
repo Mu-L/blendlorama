@@ -14,6 +14,8 @@ var extensions_api
 
 var current_image_id := ""
 var current_image_name := ""
+var image_names_by_id := {}
+var image_sizes_by_id := {}
 var uv_overlay: UVOverlay
 var last_layer_state := ""
 var poll_elapsed := 0.0
@@ -83,9 +85,14 @@ func _on_blender_image_selected(index: int) -> void:
 		current_image_id = ""
 		current_image_name = ""
 		return
-	current_image_name = image_options.get_item_text(index)
 	current_image_id = String(image_options.get_item_metadata(index))
+	current_image_name = String(image_names_by_id.get(current_image_id, image_options.get_item_text(index)))
 	var project = extensions_api.project.current_project
+	if not _match_target_size(project, current_image_id):
+		current_image_id = ""
+		current_image_name = ""
+		image_options.select(0)
+		return
 	texture_exporter.bind_project(project, current_image_id, current_image_name)
 	last_layer_state = ""
 	_send_full_sync()
@@ -138,16 +145,48 @@ func _handle_uv_data(uv_data: Dictionary) -> void:
 
 func _handle_blender_images(image_list: Dictionary) -> void:
 	image_options.clear()
+	image_names_by_id.clear()
+	image_sizes_by_id.clear()
 	image_options.add_item("Select target texture")
 	for image in image_list.get("data", []):
-		image_options.add_item(String(image.get("name", "Unnamed")))
-		image_options.set_item_metadata(image_options.item_count - 1, String(image.get("id", "")))
+		var image_id := String(image.get("id", ""))
+		var image_name := String(image.get("name", "Unnamed"))
+		var raw_size = image.get("size", [0, 0])
+		var image_size := Vector2i.ZERO
+		if raw_size is Array and raw_size.size() >= 2:
+			image_size = Vector2i(int(raw_size[0]), int(raw_size[1]))
+		image_names_by_id[image_id] = image_name
+		image_sizes_by_id[image_id] = image_size
+		var label := image_name
+		if image_size.x > 0 and image_size.y > 0:
+			label += " — %d×%d" % [image_size.x, image_size.y]
+		image_options.add_item(label)
+		image_options.set_item_metadata(image_options.item_count - 1, image_id)
 	var selected := _get_image_list_index_by_id(current_image_id)
 	image_options.select(maxi(selected, 0))
 	if selected > 0:
-		current_image_name = image_options.get_item_text(selected)
-		texture_exporter.bind_project(extensions_api.project.current_project, current_image_id, current_image_name)
-		_send_full_sync()
+		current_image_name = String(image_names_by_id.get(current_image_id, current_image_name))
+		var project = extensions_api.project.current_project
+		if _match_target_size(project, current_image_id):
+			texture_exporter.bind_project(project, current_image_id, current_image_name)
+			_send_full_sync()
+		else:
+			image_options.select(0)
+
+
+func _match_target_size(project, image_id: String) -> bool:
+	var target_size: Vector2i = image_sizes_by_id.get(image_id, Vector2i.ZERO)
+	if target_size.x <= 0 or target_size.y <= 0:
+		status_label.text = "Blender: Invalid target texture size"
+		return false
+	var old_size := Vector2i(project.size)
+	if not texture_exporter.match_project_size(target_size):
+		status_label.text = "Blender: Could not match target texture size"
+		return false
+	if old_size != target_size:
+		status_label.text = "Blender: Connected · Canvas %d×%d" % [target_size.x, target_size.y]
+		last_layer_state = ""
+	return true
 
 
 func _on_texture_changed() -> void:

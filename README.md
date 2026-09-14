@@ -37,6 +37,11 @@ texture. Pixel layers from the current frame become separate Blender images; the
 composite updates the target texture so existing material links continue to work.
 Hidden layers are retained.
 
+Target entries include their dimensions. When a target is selected or a saved binding
+is restored, Pixelorama automatically resizes its canvas to the Blender texture before
+syncing. Existing pixels are centered without resampling; expansion adds transparency,
+while shrinking crops the outer area. Pixelorama records the resize as an undoable action.
+
 - Manage layer creation, deletion, names, order, visibility and opacity in Pixelorama.
 - Selecting a layer in Pixelorama automatically switches Blender's Texture Paint
   canvas to the same layer. Blender displays it as `PX | Layer name | Blender image`.

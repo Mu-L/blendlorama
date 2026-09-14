@@ -38,10 +38,28 @@ class ProjectApi extends RefCounted:
 		current_project.frames[frame].cels[layer].image = image
 		updates += 1
 
+class DrawingAlgosApi extends RefCounted:
+	var project
+	var calls := []
+	func _init(value):
+		project = value
+	func resize_canvas(width, height, offset_x, offset_y):
+		calls.append([width, height, offset_x, offset_y])
+		project.size = Vector2i(width, height)
+
+class GeneralApi extends RefCounted:
+	var drawing_algos
+	func _init(project):
+		drawing_algos = DrawingAlgosApi.new(project)
+	func get_drawing_algos():
+		return drawing_algos
+
 class Api extends RefCounted:
 	var project := ProjectApi.new()
+	var general := GeneralApi.new(project.current_project)
 
 func _initialize():
+	_test_target_size_matching()
 	var exporter = Exporter.new()
 	exporter.extensions_api = Api.new()
 	exporter.export_temp_dir = "user://blendlorama_test"
@@ -81,6 +99,21 @@ func _initialize():
 	exporter.free()
 	print("PASS: hidden layers, stable identity, reordered receive, transparent replacement, stale packet rejection")
 	quit()
+
+
+func _test_target_size_matching():
+	var exporter = Exporter.new()
+	exporter.extensions_api = Api.new()
+	var project = exporter.extensions_api.project.current_project
+	assert(exporter.match_project_size(Vector2i(8, 6)))
+	assert(project.size == Vector2i(8, 6))
+	assert(exporter.extensions_api.general.drawing_algos.calls == [[8, 6, 2, 1]])
+	assert(not exporter.remote_applying)
+	assert(exporter.match_project_size(Vector2i(8, 6)))
+	assert(exporter.extensions_api.general.drawing_algos.calls.size() == 1)
+	assert(not exporter.match_project_size(Vector2i.ZERO))
+	exporter.free()
+	print("PASS: Target Texture size becomes Pixelorama canvas size without resampling")
 
 
 func _test_persistence(exporter):
