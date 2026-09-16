@@ -81,6 +81,53 @@ class WS_PT_UVToolsPanel(bpy.types.Panel):
             box.label(text="before using UV tools.")
 
 
+class WS_PT_PixelUVEditorPanel(bpy.types.Panel):
+    bl_label = "Pixelorama UV"
+    bl_category = "PixeloramaSync"
+    bl_space_type = "IMAGE_EDITOR"
+    bl_region_type = "UI"
+
+    @classmethod
+    def poll(cls, context):
+        return context.space_data and context.space_data.ui_type == "UV"
+
+    def draw(self, context):
+        layout = self.layout
+        scene = context.scene
+        from .unwrap_tools import resolve_target_image
+        image = resolve_target_image(context)
+        if image:
+            layout.label(text=f"Target: {image.name}", icon="IMAGE_DATA")
+            layout.label(text=f"{image.size[0]} x {image.size[1]} pixels")
+        else:
+            layout.label(text="Link a Target Texture first", icon="ERROR")
+
+        layout.prop(scene, "pixel_uv_density", text="Density")
+        layout.prop(scene, "pixel_uv_max_stretch", text="Max Stretch")
+        layout.prop(scene, "pixel_uv_padding", text="Padding")
+        layout.prop(scene, "pixel_uv_direction", text="Patch Direction")
+        column = layout.column(align=True)
+        op = column.operator("uv.pixel_smart_straighten", text="Smart Straighten + Pixels")
+        op.density = scene.pixel_uv_density
+        op.max_stretch = scene.pixel_uv_max_stretch
+        op.padding = scene.pixel_uv_padding
+        op.direction = scene.pixel_uv_direction
+        column.prop(scene, "pixel_uv_edge_direction", text="Edge Direction")
+        op = column.operator("uv.pixel_straighten_edge", text="Straighten Edge Chain")
+        op.axis = scene.pixel_uv_edge_direction
+        column.operator("uv.pixel_align_selected", text="Align to Pixel Corners")
+        op = column.operator("uv.pixel_pack_selected", text="Pack on Pixels")
+        op.padding = scene.pixel_uv_padding
+        layout.separator()
+        layout.prop(scene, "pixel_uv_show_issues", text="Show Stretch / Alignment")
+        layout.operator("uv.pixel_check_selected", text="Check Selected UVs")
+        if scene.pixel_uv_show_issues:
+            layout.label(text="Red: collapsed / outside")
+            layout.label(text="Orange: off-grid")
+            layout.label(text="Purple: stretch limit")
+        layout.label(text="Select whole quad patches to straighten", icon="INFO")
+
+
 class WS_PT_TextureToolsPanel(bpy.types.Panel):
     bl_label = "Texture Tools"
     bl_category = "PixeloramaSync"

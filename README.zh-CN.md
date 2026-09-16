@@ -202,6 +202,16 @@ python build.py --all --godot /path/to/godot
      再按对象实际缩放和非方形贴图尺寸调整并打包 UV 岛
    - “Face Grid Layout”用于让每个选中面占用固定大小的像素格
    - 目标密度放不下时会自动降低，并在 Blender 状态栏报告最终密度
+   - 在 UV 编辑器的 `N > PixeloramaSync > Pixelorama UV` 中整理 UV：先选择完整的
+     四边形 UV 岛，使用 `Smart Straighten + Pixels` 打直行列并按贴图整数像素分配尺寸；
+     如有需要，用 `Straighten Edge Chain` 修正一条开放边链，再 `Align to Pixel Corners`，
+     最后 `Pack on Pixels`
+   - `Patch Direction` 和 `Edge Direction` 可以改为水平/垂直；`Max Stretch` 限制单个
+     面主方向像素拉伸比。显示问题时，红色表示退化或出界，橙色表示未落在整数像素角点，
+     紫色表示超过拉伸限制
+   - 打直或打包所选 UV 岛时不会自动降低密度：像素空间不足、面翻转、拉伸超限或
+     只选中半个连续 UV 岛时会提示并完整恢复原 UV。打直当前面向四边形区域；
+     不规则三角形、无法组成矩形网格的连接关系需要先加 Seam 或拆成小区域
 
 3. **纹理创建**：
    - 将 UV 布局导出到 Pixelorama
@@ -225,6 +235,7 @@ Blender 插件提供多个面板：
 
 - **Pixel Perfect Unwrap**：缩放、安全吸附、校验并按整数像素打包 UV 岛
 - **Face Grid Layout**：把独立面放入固定大小的像素格
+- **UV 编辑器侧栏**：智能打直、边链打直、独立像素对齐、保持像素尺寸的打包和问题检查
 - **导出 UV**：将 UV 数据发送到 Pixelorama
 
 ### 纹理工具面板
@@ -291,6 +302,7 @@ blender-pixel-sync/
 │   ├── image_manager.py        # 图像和纹理管理
 │   ├── texture_processor.py    # 纹理处理工具
 │   ├── unwrap_tools.py         # UV 展开算法
+│   ├── uv_edit_tools.py        # 四边形打直、像素对齐和问题显示
 │   ├── ui.py                   # 用户界面面板
 │   └── watch.py                # 文件监控和更改检测
 └── blender-lorama/           # Pixelorama 扩展

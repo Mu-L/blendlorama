@@ -204,6 +204,16 @@ it contains no platform-specific binary dependency.
      are no seams), account for object scale and non-square textures, then pack islands
    - Use "Face Grid Layout" when every selected face should occupy a fixed pixel cell
    - If the requested density does not fit, the tool lowers it and reports the result
+   - In the UV editor open `N > PixeloramaSync > Pixelorama UV`. Select a complete
+     quad UV island, run `Smart Straighten + Pixels`, optionally correct one open chain
+     with `Straighten Edge Chain`, then use `Align to Pixel Corners` and `Pack on Pixels`
+   - Set Patch/Edge Direction manually if Auto chooses the wrong axis. Max Stretch is
+     the maximum ratio of the two principal pixel scales on any face. The issue overlay
+     marks collapsed or out-of-bounds faces red, off-grid corners orange and excessive stretch purple
+   - Straightening and packing never silently reduce density. Insufficient pixel space,
+     flipped faces, excessive stretch or a partially selected UV island cause an error and
+     restore all original UVs. Smart Straighten currently handles quad patches; add a seam
+     or split regions whose topology cannot form a consistent grid
 
 3. **Texture Creation**:
    - Export UV layout to Pixelorama
@@ -227,6 +237,8 @@ The Blender addon provides several panels:
 
 - **Pixel Perfect Unwrap**: Scale, safely snap, validate and integer-pack UV islands
 - **Face Grid Layout**: Place separate faces in fixed-size pixel cells
+- **UV editor sidebar**: Smart Straighten, edge-chain correction, independent pixel
+  alignment, size-preserving integer pack and issue check
 - **Export UV**: Send UV data to Pixelorama
 
 ### Texture Tools Panel
@@ -293,6 +305,7 @@ blender-pixel-sync/
 │   ├── image_manager.py        # Image and texture management
 │   ├── texture_processor.py    # Texture processing tools
 │   ├── unwrap_tools.py         # UV unwrapping algorithms
+│   ├── uv_edit_tools.py        # Quad straightening, pixel alignment and issue overlay
 │   ├── ui.py                   # User interface panels
 │   └── watch.py                # File watching and change detection
 └── blender-lorama/              # Pixelorama extension

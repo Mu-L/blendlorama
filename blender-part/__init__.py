@@ -22,9 +22,11 @@ from .ui import (
     WS_PT_ServerPanel,
     WS_PT_TextureToolsPanel,
     WS_PT_UVToolsPanel,
+    WS_PT_PixelUVEditorPanel,
     WS_PT_WorldGridPanel,
 )
 from .unwrap_tools import UV_OT_unwrap_pixel_perfect, UV_OT_unwrap_to_grid
+from .uv_edit_tools import UV_EDIT_CLASSES, register_issue_overlay, unregister_issue_overlay
 from .layer_watch import LayerWatch
 from . import layer_model
 
@@ -38,11 +40,13 @@ classes = (
     LAYER_OT_recompute_preview,
     WS_PT_ServerPanel,
     WS_PT_UVToolsPanel,
+    WS_PT_PixelUVEditorPanel,
     WS_PT_TextureToolsPanel,
     WS_PT_WorldGridPanel,
     WS_PT_LayerPanel,
     UV_OT_unwrap_pixel_perfect,
     UV_OT_unwrap_to_grid,
+    *UV_EDIT_CLASSES,
     TEXTURE_OT_check_texture,
     TEXTURE_OT_create_checker_texture,
 )
@@ -67,6 +71,32 @@ def register_scene_properties():
         name="Snap to Pixels",
         description="Snap UV vertices when doing so will not collapse a face",
         default=True,
+    )
+    bpy.types.Scene.pixel_uv_max_stretch = bpy.props.FloatProperty(
+        name="Max Pixel Stretch",
+        description="Maximum ratio of the two principal pixel scales on a face",
+        default=2.5,
+        min=1.0,
+        max=20.0,
+    )
+    bpy.types.Scene.pixel_uv_direction = bpy.props.EnumProperty(
+        name="Patch Direction",
+        items=(("AUTO", "Auto", "Use the current longest UV edge"),
+               ("U", "Horizontal", "Place that edge along U"),
+               ("V", "Vertical", "Place that edge along V")),
+        default="AUTO",
+    )
+    bpy.types.Scene.pixel_uv_edge_direction = bpy.props.EnumProperty(
+        name="Edge Direction",
+        items=(("AUTO", "Auto", "Use selected edge endpoints"),
+               ("U", "Horizontal", "Straighten on a horizontal line"),
+               ("V", "Vertical", "Straighten on a vertical line")),
+        default="AUTO",
+    )
+    bpy.types.Scene.pixel_uv_show_issues = bpy.props.BoolProperty(
+        name="Show UV Issues",
+        description="Highlight collapsed, off-grid or overstretched UV faces",
+        default=False,
     )
     bpy.types.Scene.pixel_grid_face_size = bpy.props.IntProperty(
         name="Grid Face Size",
@@ -101,6 +131,10 @@ def unregister_scene_properties():
         "pixel_uv_density",
         "pixel_uv_padding",
         "pixel_uv_snap",
+        "pixel_uv_max_stretch",
+        "pixel_uv_direction",
+        "pixel_uv_edge_direction",
+        "pixel_uv_show_issues",
         "pixel_grid_face_size",
         "pixel_export_bleed",
     ):
@@ -147,10 +181,12 @@ def register():
 
     for cls in classes:
         bpy.utils.register_class(cls)
+    register_issue_overlay()
 
 
 def unregister():
     stop_server()
+    unregister_issue_overlay()
 
     if bpy.app.timers.is_registered(process_pending_events):
         bpy.app.timers.unregister(process_pending_events)

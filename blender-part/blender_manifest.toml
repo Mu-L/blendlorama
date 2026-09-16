@@ -1,6 +1,6 @@
 id = "pixelorama_sync"
 schema_version = "1.0.0"
-version = "0.5.2"
+version = "0.6.0"
 name = "Pixelorama Sync"
 tagline = "Real-time UV and texture sync between Blender and Pixelorama"
 maintainer = "yuchenyang1994"
@@ -28,5 +28,6 @@ paths = [
   "ui.py",
   "unwrap_tools.py",
   "uv_extractor.py",
+  "uv_edit_tools.py",
   "watch.py",
 ]

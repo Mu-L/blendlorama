@@ -76,4 +76,14 @@ for face in bm.faces:
         assert abs(uv.y * 48 - round(uv.y * 48)) < 1e-4
 UnwrapTools.validate(faces, uv_layer, (96, 48))
 
+# Independent integer packing preserves every island size and padding.
+before_pack = [island.pixel_bounds(96, 48) for island in UnwrapTools.get_islands_for_faces(bm, faces, uv_layer)]
+assert bpy.ops.uv.pixel_pack_selected(padding=1) == {"FINISHED"}
+after_pack = [island.pixel_bounds(96, 48) for island in UnwrapTools.get_islands_for_faces(bm, faces, uv_layer)]
+assert sorted((xmax-xmin, ymax-ymin) for xmin,ymin,xmax,ymax in before_pack) == sorted(
+    (xmax-xmin, ymax-ymin) for xmin,ymin,xmax,ymax in after_pack)
+for i, (ax0, ay0, ax1, ay1) in enumerate(after_pack):
+    for bx0, by0, bx1, by1 in after_pack[i+1:]:
+        assert ax1 + 1 <= bx0 - 1 or bx1 + 1 <= ax0 - 1 or ay1 + 1 <= by0 - 1 or by1 + 1 <= ay0 - 1
+
 print("PASS: target resolution, world-scale density, pixel snapping, padding, packing and face grid")
